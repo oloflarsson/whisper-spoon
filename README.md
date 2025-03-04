@@ -1,4 +1,4 @@
-# 🎤 Whisper Spoon: STT Shortcut for Hammerspoon (macOS)
+# 🎤 WhisperSpoon: STT Shortcut for macOS
 
 ## Screenshot
 
@@ -26,7 +26,7 @@
 
 These API providers are currently supported:
 
-1. https://elevenlabs.io (free for low volumes!)
+1. https://elevenlabs.io (free for low volumes)
 2. https://console.groq.com
 3. https://platform.openai.com
 
