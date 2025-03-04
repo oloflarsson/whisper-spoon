@@ -1,4 +1,4 @@
-# 🎤 WhisperSpoon: STT Shortcut for macOS
+# 🎙️ WhisperSpoon: STT Shortcut for macOS
 
 ## 📸 Screenshot
 
