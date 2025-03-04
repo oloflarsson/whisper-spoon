@@ -1,10 +1,10 @@
 # 🎤 WhisperSpoon: STT Shortcut for macOS
 
-## Screenshot
+## 📸 Screenshot
 
 ![Screenshot](screenshot.png)
 
-## Features
+## ✨ Features
 
 - **🗣 Voice Typing:** Speech to text anywhere on macOS.
 - **💻 Shortcut:** `⌥ + Space` to start and finish.
@@ -13,7 +13,7 @@
 - **💰 Free:** Completely when paired with Elevenlabs Scribe.
 - **💕 Open Source:** [MIT Licensed](LICENSE)
 
-## Installation
+## 📥 Installation
 
 1. Install https://brew.sh
 2. `$ brew install sox switchaudio-osx`
@@ -22,7 +22,7 @@
 5. Copy `whisper-spoon.lua` contents into your `~/.hammerspoon/init.lua`
 6. Reload Hammerspoon Config
 
-## API Provider Setup
+## 🔌 API Provider Setup
 
 These API providers are currently supported:
 
