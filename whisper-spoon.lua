@@ -49,8 +49,9 @@ end
 ----------------------------------------------------------------------------------------------------
 
 local whisperSpoonFileDir = os.getenv("HOME") .. "/.whisperspoon"
-local whisperSpoonFilePidRecord = whisperSpoonFileDir .. "/pidrecord.txt"
 local whisperSpoonFilePidSetup = whisperSpoonFileDir .. "/pidsetup.txt"
+local whisperSpoonFilePidRecord = whisperSpoonFileDir .. "/pidrecord.txt"
+local whisperSpoonFilePidTranscribe = whisperSpoonFileDir .. "/pidtranscribe.txt"
 local whisperSpoonFileWav = whisperSpoonFileDir .. "/audio.wav"
 local whisperSpoonFileJson = whisperSpoonFileDir .. "/config.json"
 
@@ -93,14 +94,13 @@ local function whisperSpoonInstallBrewPackages()
     
     local task = hs.task.new("/opt/homebrew/bin/brew", function(exitCode, stdOut, stdErr)
         whisperSpoonPidFileDelete(whisperSpoonFilePidSetup)
+        whisperSpoonMenubarRebuild()
         
         if exitCode ~= 0 then
             whisperSpoonShowAlert("❌ Installation failed:\n" .. stdErr, 5)
         else
             whisperSpoonShowAlert("✅ Packages installed successfully", 2)
         end
-        
-        whisperSpoonMenubarRebuild()
     end, {"install", "sox", "switchaudio-osx"})
     
     local success = task:start()
@@ -376,12 +376,6 @@ local function whisperSpoonShowApiKeyDialog()
 end
 
 ----------------------------------------------------------------------------------------------------
--- WHISPER SPOON > PID
-----------------------------------------------------------------------------------------------------
-
--- PID functions removed and inlined
-
-----------------------------------------------------------------------------------------------------
 -- WHISPER SPOON > TRANSCRIBE
 ----------------------------------------------------------------------------------------------------
 
@@ -414,6 +408,9 @@ local function whisperSpoonTranscribe(callback)
     table.insert(curlArgs, apiConfig.apiUrl)
     
     local task = hs.task.new("/usr/bin/curl", function(exitCode, stdOut, stdErr)
+        whisperSpoonPidFileDelete(whisperSpoonFilePidTranscribe)
+        whisperSpoonMenubarRebuild()
+        
         if exitCode ~= 0 then
             callback(nil, "API error: " .. stdErr)
             return
@@ -429,8 +426,13 @@ local function whisperSpoonTranscribe(callback)
         end
     end, curlArgs)
     
-    task:start()
-    return true
+    local success = task:start()
+    if success then
+        whisperSpoonPidFileWrite(whisperSpoonFilePidTranscribe, task:pid())
+        whisperSpoonMenubarRebuild()
+        return true
+    end
+    return false
 end
 
 ----------------------------------------------------------------------------------------------------
@@ -457,6 +459,7 @@ local function whisperSpoonRecordingStart()
     local success = task:start()
     if success then
         whisperSpoonPidFileWrite(whisperSpoonFilePidRecord, task:pid())
+        whisperSpoonMenubarRebuild()
         return true
     end
     return false
@@ -470,10 +473,15 @@ local function whisperSpoonRecordingStop()
 end
 
 local function whisperSpoonRecordingToggle()
+    -- Check if transcription is in progress
+    if whisperSpoonPidFileRunning(whisperSpoonFilePidTranscribe) then
+        whisperSpoonShowAlert("⏳ Transcription in progress, please wait...", 2)
+        return
+    end
+
     if not whisperSpoonPidFileRunning(whisperSpoonFilePidRecord) then
         hs.sound.getByName("Morse"):play()
         whisperSpoonRecordingStart()
-        whisperSpoonMenubarRebuild()
     else
         hs.sound.getByName("Pop"):play()
         whisperSpoonRecordingStop()
@@ -549,7 +557,14 @@ end
 function whisperSpoonMenubarCreateRecordingMenuItem()
     local apiConfig, error = whisperSpoonGetApiConfig(true)
 
-    if whisperSpoonPidFileRunning(whisperSpoonFilePidRecord) then
+    -- Check if transcription is in progress
+    if whisperSpoonPidFileRunning(whisperSpoonFilePidTranscribe) then
+        return {
+            title = "⏳ Transcription in progress...", 
+            disabled = true,
+            fn = function() end
+        }
+    elseif whisperSpoonPidFileRunning(whisperSpoonFilePidRecord) then
         return {
             title = "Stop Recording (⌥ + Space)", 
             fn = whisperSpoonRecordingToggle
@@ -758,8 +773,18 @@ function whisperSpoonMenubarCreateMenuItems()
 end
 
 local whisperSpoonMenubar = hs.menubar.new()
-whisperSpoonMenubar:setIcon(hs.image.imageFromName("NSAudioInputTemplate"))
 function whisperSpoonMenubarRebuild()
+    if whisperSpoonPidFileRunning(whisperSpoonFilePidRecord) then
+        whisperSpoonMenubar:setTitle("🎙️")
+        whisperSpoonMenubar:setIcon(nil)
+    elseif whisperSpoonPidFileRunning(whisperSpoonFilePidTranscribe) then
+        whisperSpoonMenubar:setTitle("🧠")
+        whisperSpoonMenubar:setIcon(nil)
+    else
+        whisperSpoonMenubar:setTitle(nil)
+        whisperSpoonMenubar:setIcon(hs.image.imageFromName("NSAudioInputTemplate"))
+    end
+
     whisperSpoonMenubar:setMenu(whisperSpoonMenubarCreateMenuItems())
 end
 whisperSpoonMenubarRebuild()
