@@ -772,8 +772,6 @@ function whisperSpoonMenubarCreateMenuItems()
     return menuItems
 end
 
-
-
 local whisperSpoonMenubar = hs.menubar.new()
 function whisperSpoonMenubarRebuild()
     if whisperSpoonPidFileRunning(whisperSpoonFilePidRecord) then
