@@ -475,7 +475,7 @@ end
 local function whisperSpoonRecordingToggle()
     -- Check if transcription is in progress
     if whisperSpoonPidFileRunning(whisperSpoonFilePidTranscribe) then
-        whisperSpoonShowAlert("⏳ Transcription in progress, please wait...", 2)
+        whisperSpoonShowAlert("📝 Transcription in progress, please wait...", 2)
         return
     end
 
@@ -560,7 +560,7 @@ function whisperSpoonMenubarCreateRecordingMenuItem()
     -- Check if transcription is in progress
     if whisperSpoonPidFileRunning(whisperSpoonFilePidTranscribe) then
         return {
-            title = "⏳ Transcription in progress...", 
+            title = "📝 Transcription in progress...",
             disabled = true,
             fn = function() end
         }
@@ -772,13 +772,15 @@ function whisperSpoonMenubarCreateMenuItems()
     return menuItems
 end
 
+
+
 local whisperSpoonMenubar = hs.menubar.new()
 function whisperSpoonMenubarRebuild()
     if whisperSpoonPidFileRunning(whisperSpoonFilePidRecord) then
-        whisperSpoonMenubar:setTitle("🎙️")
+        whisperSpoonMenubar:setTitle("🔴")
         whisperSpoonMenubar:setIcon(nil)
     elseif whisperSpoonPidFileRunning(whisperSpoonFilePidTranscribe) then
-        whisperSpoonMenubar:setTitle("🧠")
+        whisperSpoonMenubar:setTitle("📝")
         whisperSpoonMenubar:setIcon(nil)
     else
         whisperSpoonMenubar:setTitle(nil)
