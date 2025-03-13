@@ -52,8 +52,8 @@ local whisperSpoonFileDir = os.getenv("HOME") .. "/.whisperspoon"
 local whisperSpoonFilePidSetup = whisperSpoonFileDir .. "/pidsetup.txt"
 local whisperSpoonFilePidRecord = whisperSpoonFileDir .. "/pidrecord.txt"
 local whisperSpoonFilePidTranscribe = whisperSpoonFileDir .. "/pidtranscribe.txt"
-local whisperSpoonFileWav = whisperSpoonFileDir .. "/audio.wav"
-local whisperSpoonFileJson = whisperSpoonFileDir .. "/config.json"
+local whisperSpoonFileAudio = whisperSpoonFileDir .. "/audio.wav"
+local whisperSpoonFileConfig = whisperSpoonFileDir .. "/config.json"
 
 whisperSpoonEnsureDirectoryExists(whisperSpoonFileDir)
 
@@ -126,7 +126,7 @@ end
 local function whisperSpoonConfigRead()
     local defaultConfig = {history = {}, apiKey = "", language = ""}
     
-    local f = io.open(whisperSpoonFileJson, "r")
+    local f = io.open(whisperSpoonFileConfig, "r")
     if not f then 
         return defaultConfig
     end
@@ -159,7 +159,7 @@ local function whisperSpoonConfigRead()
 end
 
 local function whisperSpoonConfigWrite(config)
-    local f = io.open(whisperSpoonFileJson, "w")
+    local f = io.open(whisperSpoonFileConfig, "w")
     f:write(hs.json.encode(config, true))
     f:close()
 end
@@ -398,7 +398,7 @@ local function whisperSpoonTranscribe(callback)
     end
     
     table.insert(curlArgs, "-F")
-    table.insert(curlArgs, "file=@" .. whisperSpoonFileWav)
+    table.insert(curlArgs, "file=@" .. whisperSpoonFileAudio)
     
     for key, value in pairs(apiConfig.formParams) do
         table.insert(curlArgs, "-F")
@@ -454,7 +454,7 @@ local function whisperSpoonRecordingStart()
         return false
     end
 
-    local task = hs.task.new(recPath, function() whisperSpoonPidFileDelete(whisperSpoonFilePidRecord) end, {"-c", "1", "-r", "16000", "-b", "16", whisperSpoonFileWav})
+    local task = hs.task.new(recPath, function() whisperSpoonPidFileDelete(whisperSpoonFilePidRecord) end, {"-c", "1", "-r", "16000", "-b", "16", whisperSpoonFileAudio})
 
     local success = task:start()
     if success then
