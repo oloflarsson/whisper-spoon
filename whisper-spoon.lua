@@ -16,12 +16,41 @@ local function whisperSpoonEnsureDirectoryExists(dir)
 end
 
 ----------------------------------------------------------------------------------------------------
+-- WHISPER SPOON > PID UTILS
+----------------------------------------------------------------------------------------------------
+
+local function whisperSpoonPidFileWrite(pidFile, pid)
+    local f = io.open(pidFile, "w")
+    f:write(tostring(pid))
+    f:close()
+end
+
+local function whisperSpoonPidFileRead(pidFile)
+    local f = io.open(pidFile, "r")
+    if not f then return nil end
+    local content = f:read("*all")
+    f:close()
+    return content:gsub("^%s*(.-)%s*$", "%1") -- Trim whitespace
+end
+
+local function whisperSpoonPidFileDelete(pidFile)
+    os.remove(pidFile)
+end
+
+local function whisperSpoonPidFileRunning(pidFile)
+    local pid = whisperSpoonPidFileRead(pidFile)
+    if not pid or not tonumber(pid) then return false end
+    local output, _, _, rc = hs.execute("ps -p " .. pid .. " -o pid=")
+    return (rc == 0 and output and output:match("%d+"))
+end
+
+----------------------------------------------------------------------------------------------------
 -- WHISPER SPOON > FILES
 ----------------------------------------------------------------------------------------------------
 
 local whisperSpoonFileDir = os.getenv("HOME") .. "/.whisperspoon"
-local whisperSpoonFilePid = whisperSpoonFileDir .. "/recorderpid.txt"
-local whisperSpoonSetupFilePid = whisperSpoonFileDir .. "/brewinstallpid.txt"
+local whisperSpoonFilePidRecord = whisperSpoonFileDir .. "/pidrecord.txt"
+local whisperSpoonFilePidSetup = whisperSpoonFileDir .. "/pidsetup.txt"
 local whisperSpoonFileWav = whisperSpoonFileDir .. "/audio.wav"
 local whisperSpoonFileJson = whisperSpoonFileDir .. "/config.json"
 
@@ -49,38 +78,13 @@ local function whisperSpoonAreAllDependenciesInstalled()
            whisperSpoonIsSwitchAudioInstalled()
 end
 
-local function whisperSpoonSetupPidWrite(pid)
-    local f = io.open(whisperSpoonSetupFilePid, "w")
-    f:write(tostring(pid))
-    f:close()
-end
-
-local function whisperSpoonSetupPidRead()
-    local f = io.open(whisperSpoonSetupFilePid, "r")
-    if not f then return nil end
-    local content = f:read("*all")
-    f:close()
-    return content:gsub("^%s*(.-)%s*$", "%1") -- Trim whitespace
-end
-
-local function whisperSpoonSetupPidDelete()
-    os.remove(whisperSpoonSetupFilePid)
-end
-
-local function whisperSpoonSetupPidRunning()
-    local pid = whisperSpoonSetupPidRead()
-    if not pid or not tonumber(pid) then return false end
-    local output, _, _, rc = hs.execute("ps -p " .. pid .. " -o pid=")
-    return (rc == 0 and output and output:match("%d+"))
-end
-
 local function whisperSpoonInstallBrewPackages()
     if not whisperSpoonIsHomebrewInstalled() then
         whisperSpoonShowAlert("Please install Homebrew first", 3)
         return false
     end
     
-    if whisperSpoonSetupPidRunning() then
+    if whisperSpoonPidFileRunning(whisperSpoonFilePidSetup) then
         whisperSpoonShowAlert("⏳ Installation already in progress...", 2)
         return false
     end
@@ -88,7 +92,7 @@ local function whisperSpoonInstallBrewPackages()
     whisperSpoonShowAlert("⏳ Installing Packages...", 5)
     
     local task = hs.task.new("/opt/homebrew/bin/brew", function(exitCode, stdOut, stdErr)
-        whisperSpoonSetupPidDelete()
+        whisperSpoonPidFileDelete(whisperSpoonFilePidSetup)
         
         if exitCode ~= 0 then
             whisperSpoonShowAlert("❌ Installation failed:\n" .. stdErr, 5)
@@ -101,7 +105,7 @@ local function whisperSpoonInstallBrewPackages()
     
     local success = task:start()
     if success then
-        whisperSpoonSetupPidWrite(task:pid())
+        whisperSpoonPidFileWrite(whisperSpoonFilePidSetup, task:pid())
         whisperSpoonMenubarRebuild()
         return true
     else
@@ -375,30 +379,7 @@ end
 -- WHISPER SPOON > PID
 ----------------------------------------------------------------------------------------------------
 
-local function whisperSpoonPidWrite(pid)
-    local f = io.open(whisperSpoonFilePid, "w")
-    f:write(tostring(pid))
-    f:close()
-end
-
-local function whisperSpoonPidRead()
-    local f = io.open(whisperSpoonFilePid, "r")
-    if not f then return nil end
-    local content = f:read("*all")
-    f:close()
-    return content:gsub("^%s*(.-)%s*$", "%1") -- Trim whitespace
-end
-
-local function whisperSpoonPidDelete()
-    os.remove(whisperSpoonFilePid)
-end
-
-local function whisperSpoonPidRunning()
-    local pid = whisperSpoonPidRead()
-    if not pid or not tonumber(pid) then return false end
-    local output, _, _, rc = hs.execute("ps -p " .. pid .. " -o pid=")
-    return (rc == 0 and output and output:match("%d+"))
-end
+-- PID functions removed and inlined
 
 ----------------------------------------------------------------------------------------------------
 -- WHISPER SPOON > TRANSCRIBE
@@ -471,25 +452,25 @@ local function whisperSpoonRecordingStart()
         return false
     end
 
-    local task = hs.task.new(recPath, whisperSpoonPidDelete, {"-c", "1", "-r", "16000", "-b", "16", whisperSpoonFileWav})
+    local task = hs.task.new(recPath, function() whisperSpoonPidFileDelete(whisperSpoonFilePidRecord) end, {"-c", "1", "-r", "16000", "-b", "16", whisperSpoonFileWav})
 
     local success = task:start()
     if success then
-        whisperSpoonPidWrite(task:pid())
+        whisperSpoonPidFileWrite(whisperSpoonFilePidRecord, task:pid())
         return true
     end
     return false
 end
 
 local function whisperSpoonRecordingStop()
-    local pid = whisperSpoonPidRead()
+    local pid = whisperSpoonPidFileRead(whisperSpoonFilePidRecord)
     if pid and tonumber(pid) then
         return os.execute("kill -15 " .. pid)
     end
 end
 
 local function whisperSpoonRecordingToggle()
-    if not whisperSpoonPidRunning() then
+    if not whisperSpoonPidFileRunning(whisperSpoonFilePidRecord) then
         hs.sound.getByName("Morse"):play()
         whisperSpoonRecordingStart()
         whisperSpoonMenubarRebuild()
@@ -545,7 +526,7 @@ function whisperSpoonMenubarCreateSetupMenuItems()
     
     -- Brew packages installation item
     local packagesInstalled = whisperSpoonIsSoxInstalled() and whisperSpoonIsSwitchAudioInstalled()
-    local installInProgress = whisperSpoonSetupPidRunning()
+    local installInProgress = whisperSpoonPidFileRunning(whisperSpoonFilePidSetup)
     
     local packageTitle = "Install Packages"
     if packagesInstalled then
@@ -568,7 +549,7 @@ end
 function whisperSpoonMenubarCreateRecordingMenuItem()
     local apiConfig, error = whisperSpoonGetApiConfig(true)
 
-    if whisperSpoonPidRunning() then
+    if whisperSpoonPidFileRunning(whisperSpoonFilePidRecord) then
         return {
             title = "Stop Recording (⌥ + Space)", 
             fn = whisperSpoonRecordingToggle
