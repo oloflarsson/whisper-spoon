@@ -515,66 +515,48 @@ hs.hotkey.bind({"alt"}, "space", whisperSpoonRecordingToggle)
 -- WHISPER SPOON > MENUBAR
 ----------------------------------------------------------------------------------------------------
 
--- Main function to build menus from a declarative structure
-local function whisperSpoonMenubarBuildFromStructure(menuStructure)
-    local menuItems = {}
+-- Simplified menu builder that processes menu items directly
+local function buildMenu(menuItems)
+    local result = {}
     
-    for _, item in ipairs(menuStructure) do
+    for _, item in ipairs(menuItems) do
         -- Skip items with a condition that evaluates to false
-        if item.condition == nil or item.condition() then
-            local menuItem = {}
-            
-            -- Handle title (string or function)
-            if type(item.title) == "function" then
-                menuItem.title = item.title()
-            else
-                menuItem.title = item.title
-            end
-            
-            -- Handle disabled state (boolean or function)
-            if type(item.disabled) == "function" then
-                menuItem.disabled = item.disabled()
-            else
-                menuItem.disabled = item.disabled
-            end
-            
-            -- Handle function callback
-            menuItem.fn = item.fn
-            
-            -- Handle checked state (boolean or function)
-            if item.checked ~= nil then
-                if type(item.checked) == "function" then
-                    menuItem.checked = item.checked()
-                else
-                    menuItem.checked = item.checked
-                end
-            end
-            
-            -- Handle submenu (array or function returning data structure)
-            if item.submenu ~= nil then
-                if type(item.submenu) == "function" then
-                    -- The function now returns a data structure, not menu items
-                    menuItem.menu = whisperSpoonMenubarBuildFromStructure(item.submenu())
-                else
-                    menuItem.menu = whisperSpoonMenubarBuildFromStructure(item.submenu)
-                end
-            end
-            
-            -- Handle tooltip
-            if item.tooltip ~= nil then
-                menuItem.tooltip = item.tooltip
-            end
-            
-            table.insert(menuItems, menuItem)
+        if item.condition ~= nil and not item.condition() then
+            goto continue
         end
+        
+        local menuItem = {}
+        
+        -- Process title
+        menuItem.title = type(item.title) == "function" and item.title() or item.title
+        
+        -- Process other properties directly
+        menuItem.disabled = type(item.disabled) == "function" and item.disabled() or item.disabled
+        menuItem.fn = item.fn
+        menuItem.tooltip = item.tooltip
+        
+        -- Handle checked state
+        if item.checked ~= nil then
+            menuItem.checked = type(item.checked) == "function" and item.checked() or item.checked
+        end
+        
+        -- Process submenu if present
+        if item.submenu ~= nil then
+            local submenuItems = type(item.submenu) == "function" and item.submenu() or item.submenu
+            menuItem.menu = buildMenu(submenuItems)
+        end
+        
+        table.insert(result, menuItem)
+        
+        ::continue::
     end
     
-    return menuItems
+    return result
 end
 
--- Define the declarative menu structure
-local whisperSpoonMenuStructure = {
-    -- For setup mode
+-- Menu definitions - separated from the rendering logic
+local menuDefinitions = {
+    -- Setup mode menu items
     setup = {
         { 
             title = "Installation Steps:",
@@ -597,27 +579,25 @@ local whisperSpoonMenuStructure = {
                 local packagesInstalled = whisperSpoonIsSoxInstalled() and whisperSpoonIsSwitchAudioInstalled()
                 local installInProgress = whisperSpoonPidFileRunning(whisperSpoonFilePidSetup)
                 
-                local packageTitle = "Install Packages"
                 if packagesInstalled then
-                    packageTitle = "✅ " .. packageTitle
+                    return "✅ Install Packages"
                 elseif installInProgress then
-                    packageTitle = "⏳ Installing Packages..."
+                    return "⏳ Installing Packages..."
                 elseif whisperSpoonIsHomebrewInstalled() then
-                    packageTitle = "➡️ " .. packageTitle
+                    return "➡️ Install Packages"
+                else
+                    return "Install Packages"
                 end
-                
-                return packageTitle
             end,
             disabled = function()
-                local packagesInstalled = whisperSpoonIsSoxInstalled() and whisperSpoonIsSwitchAudioInstalled()
-                local installInProgress = whisperSpoonPidFileRunning(whisperSpoonFilePidSetup)
-                return not whisperSpoonIsHomebrewInstalled() or packagesInstalled or installInProgress
+                return not whisperSpoonIsHomebrewInstalled() or 
+                       (whisperSpoonIsSoxInstalled() and whisperSpoonIsSwitchAudioInstalled()) or 
+                       whisperSpoonPidFileRunning(whisperSpoonFilePidSetup)
             end,
             fn = function()
-                local packagesInstalled = whisperSpoonIsSoxInstalled() and whisperSpoonIsSwitchAudioInstalled()
-                local installInProgress = whisperSpoonPidFileRunning(whisperSpoonFilePidSetup)
-                
-                if not whisperSpoonIsHomebrewInstalled() or packagesInstalled or installInProgress then
+                if not whisperSpoonIsHomebrewInstalled() or 
+                   (whisperSpoonIsSoxInstalled() and whisperSpoonIsSwitchAudioInstalled()) or 
+                   whisperSpoonPidFileRunning(whisperSpoonFilePidSetup) then
                     return
                 end
                 
@@ -626,7 +606,7 @@ local whisperSpoonMenuStructure = {
         }
     },
     
-    -- For normal mode
+    -- Normal mode menu items
     normal = {
         {
             title = function()
@@ -638,9 +618,7 @@ local whisperSpoonMenuStructure = {
                     return "Start Recording (⌥ + Space)"
                 end
             end,
-            disabled = function()
-                return whisperSpoonPidFileRunning(whisperSpoonFilePidTranscribe)
-            end,
+            disabled = function() return whisperSpoonPidFileRunning(whisperSpoonFilePidTranscribe) end,
             fn = function()
                 if not whisperSpoonPidFileRunning(whisperSpoonFilePidTranscribe) then
                     whisperSpoonRecordingToggle()
@@ -658,44 +636,37 @@ local whisperSpoonMenuStructure = {
                 return "⚠️ " .. error
             end,
             disabled = true,
-            condition = function()
-                return whisperSpoonGetApiConfig(true) == nil
-            end
+            condition = function() return whisperSpoonGetApiConfig(true) == nil end
         },
         {
             title = function()
-                local apiConfig, _ = whisperSpoonGetApiConfig(true)
-                local apiKeyText = "Configure API Key"
-                if apiConfig then
-                    apiKeyText = apiKeyText .. " (" .. apiConfig.provider .. ")"
-                end
-                return apiKeyText
+                local apiConfig = whisperSpoonGetApiConfig(true)
+                return "Configure API Key" .. (apiConfig and " (" .. apiConfig.provider .. ")" or "")
             end,
             fn = whisperSpoonShowApiKeyDialog
         },
+        -- Microphone menu item
         {
             title = function()
-                local currentMicrophone = hs.audiodevice.defaultInputDevice()
-                local currentMicrophoneName = currentMicrophone and currentMicrophone:name() or "Unknown"
-                return "Microphone (" .. currentMicrophoneName .. ")"
+                local currentMic = hs.audiodevice.defaultInputDevice()
+                return "Microphone (" .. (currentMic and currentMic:name() or "Unknown") .. ")"
             end,
             submenu = function()
-                local submenuStructure = {}
+                local items = {}
                 local inputDevices = hs.audiodevice.allInputDevices()
                 local currentDevice = hs.audiodevice.defaultInputDevice()
                 
                 if #inputDevices == 0 then
-                    table.insert(submenuStructure, {
+                    table.insert(items, {
                         title = "No microphone found",
                         disabled = true
                     })
                 else
                     for _, device in ipairs(inputDevices) do
                         local deviceName = device:name()
-                        local isDefault = (currentDevice and device:uid() == currentDevice:uid())
-                        table.insert(submenuStructure, {
+                        table.insert(items, {
                             title = deviceName,
-                            checked = isDefault,
+                            checked = currentDevice and device:uid() == currentDevice:uid(),
                             fn = function()
                                 local success = hs.execute("/opt/homebrew/bin/SwitchAudioSource -t input -s \"" .. deviceName .. "\"")
                                 if success then
@@ -709,76 +680,60 @@ local whisperSpoonMenuStructure = {
                     end
                 end
                 
-                return submenuStructure
+                return items
             end
         },
+        -- Language menu item
         {
             title = function()
                 local config = whisperSpoonConfigRead()
-                local currentLanguage = config.language or ""
-                local languageDisplayName = whisperSpoonGetLanguageDisplayName(currentLanguage)
-                return "Language (" .. languageDisplayName .. ")"
+                local langName = whisperSpoonGetLanguageDisplayName(config.language or "")
+                return "Language (" .. langName .. ")"
             end,
             submenu = function()
                 local config = whisperSpoonConfigRead()
-                local currentLanguage = config.language or ""
+                local currentLang = config.language or ""
+                local items = {}
                 
-                -- Return a data structure instead of menu items
-                local submenuStructure = {}
-                
-                -- Add language items
                 for _, lang in ipairs(whisperSpoonLanguages) do
-                    local langCode = lang.code
-                    local langName = lang.name
-                    table.insert(submenuStructure, {
-                        title = function()
-                            local displayText = langName
-                            if langCode ~= "" then
-                                displayText = displayText .. " (" .. langCode .. ")"
-                            end
-                            return displayText
-                        end,
-                        checked = function() return currentLanguage == langCode end,
-                        fn = function() whisperSpoonSetLanguageAndAlert(langCode) end
+                    table.insert(items, {
+                        title = lang.name .. (lang.code ~= "" and " (" .. lang.code .. ")" or ""),
+                        checked = currentLang == lang.code,
+                        fn = function() whisperSpoonSetLanguageAndAlert(lang.code) end
                     })
                 end
                 
-                -- Add separator and "Other..." option
-                table.insert(submenuStructure, {title = "-"})
-                table.insert(submenuStructure, {
+                table.insert(items, {title = "-"})
+                table.insert(items, {
                     title = "Other...",
                     fn = whisperSpoonShowCustomLanguageDialog
                 })
                 
-                return submenuStructure
+                return items
             end
         },
+        -- History menu item
         {
             title = "History",
             submenu = function()
                 local config = whisperSpoonConfigRead()
-                local submenuStructure = {}
+                local items = {}
                 
                 if #config.history > 0 then
-                    for i, text in ipairs(config.history) do
-                        local historyText = text -- Capture in local variable for closure
-                        local displayText = historyText
-                        if #displayText > 50 then
-                            displayText = displayText:sub(1, 47) .. "..."
-                        end
-                        
-                        table.insert(submenuStructure, {
+                    for _, text in ipairs(config.history) do
+                        local displayText = #text > 50 and text:sub(1, 47) .. "..." or text
+                        table.insert(items, {
                             title = displayText,
                             fn = function() 
-                                hs.pasteboard.setContents(historyText)
+                                hs.pasteboard.setContents(text)
                                 whisperSpoonShowAlert("📋 Copied to clipboard", 2)
                             end,
-                            tooltip = historyText
+                            tooltip = text
                         })
                     end
                     
-                    table.insert(submenuStructure, {title = "-"})
-                    table.insert(submenuStructure, {
+                    table.insert(items, {title = "-"})
+                    table.insert(items, {
                         title = "Clear History",
                         fn = function()
                             whisperSpoonConfigHistoryClear()
@@ -787,25 +742,22 @@ local whisperSpoonMenuStructure = {
                         end
                     })
                 else
-                    table.insert(submenuStructure, {
+                    table.insert(items, {
                         title = "No previous transcripts",
                         disabled = true
                     })
                 end
                 
-                return submenuStructure
+                return items
             end
         }
     }
 }
 
--- Simplified menu creation function that uses the declarative structure
+-- Simplified menu creation function
 function whisperSpoonMenubarCreateMenuItems()
-    if not whisperSpoonAreAllDependenciesInstalled() then
-        return whisperSpoonMenubarBuildFromStructure(whisperSpoonMenuStructure.setup)
-    else
-        return whisperSpoonMenubarBuildFromStructure(whisperSpoonMenuStructure.normal)
-    end
+    local menuType = whisperSpoonAreAllDependenciesInstalled() and "normal" or "setup"
+    return buildMenu(menuDefinitions[menuType])
 end
 
 local whisperSpoonMenubar = hs.menubar.new()
