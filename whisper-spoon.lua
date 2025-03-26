@@ -3,6 +3,17 @@
 ----------------------------------------------------------------------------------------------------
 
 ----------------------------------------------------------------------------------------------------
+-- WHISPER SPOON > FILES
+----------------------------------------------------------------------------------------------------
+
+local whisperSpoonFileDir = os.getenv("HOME") .. "/.whisperspoon"
+local whisperSpoonFilePidSetup = whisperSpoonFileDir .. "/pidsetup.txt"
+local whisperSpoonFilePidRecord = whisperSpoonFileDir .. "/pidrecord.txt"
+local whisperSpoonFilePidTranscribe = whisperSpoonFileDir .. "/pidtranscribe.txt"
+local whisperSpoonFileAudio = whisperSpoonFileDir .. "/audio.wav"
+local whisperSpoonFileConfig = whisperSpoonFileDir .. "/config.json"
+
+----------------------------------------------------------------------------------------------------
 -- WHISPER SPOON > UTILS
 ----------------------------------------------------------------------------------------------------
 
@@ -13,6 +24,20 @@ end
 
 local function whisperSpoonEnsureDirectoryExists(dir)
     os.execute('mkdir -p "' .. dir .. '"')
+end
+
+whisperSpoonEnsureDirectoryExists(whisperSpoonFileDir)
+
+local function whisperSpoonSaveTranscriptionToFile(text, filename)
+    local filepath = whisperSpoonFileDir .. "/" .. filename
+    local f = io.open(filepath, "w")
+    f:write(text)
+    f:close()
+    return filepath
+end
+
+local function whisperSpoonOpenFileWithDefaultApp(filepath)
+    os.execute('open "' .. filepath .. '"')
 end
 
 ----------------------------------------------------------------------------------------------------
@@ -43,19 +68,6 @@ local function whisperSpoonPidFileRunning(pidFile)
     local output, _, _, rc = hs.execute("ps -p " .. pid .. " -o pid=")
     return (rc == 0 and output and output:match("%d+"))
 end
-
-----------------------------------------------------------------------------------------------------
--- WHISPER SPOON > FILES
-----------------------------------------------------------------------------------------------------
-
-local whisperSpoonFileDir = os.getenv("HOME") .. "/.whisperspoon"
-local whisperSpoonFilePidSetup = whisperSpoonFileDir .. "/pidsetup.txt"
-local whisperSpoonFilePidRecord = whisperSpoonFileDir .. "/pidrecord.txt"
-local whisperSpoonFilePidTranscribe = whisperSpoonFileDir .. "/pidtranscribe.txt"
-local whisperSpoonFileAudio = whisperSpoonFileDir .. "/audio.wav"
-local whisperSpoonFileConfig = whisperSpoonFileDir .. "/config.json"
-
-whisperSpoonEnsureDirectoryExists(whisperSpoonFileDir)
 
 ----------------------------------------------------------------------------------------------------
 -- WHISPER SPOON > SETUP & DEPENDENCIES
@@ -325,7 +337,8 @@ local function whisperSpoonGetApiConfig(suppressAlert)
         }
         apiConfig.formParams = {
             ["model"] = "whisper-large-v3",
-            ["response_format"] = "json"
+            ["response_format"] = "verbose_json",
+            ["timestamp_granularities[]"] = "word"
         }
     elseif apiKey:match("^sk%-") then
         apiConfig.provider = "OpenAI"
@@ -335,7 +348,8 @@ local function whisperSpoonGetApiConfig(suppressAlert)
         }
         apiConfig.formParams = {
             ["model"] = "whisper-1",
-            ["response_format"] = "json"
+            ["response_format"] = "verbose_json",
+            ["timestamp_granularities[]"] = "word"
         }
     else
         local error = "Invalid API key format"
@@ -379,7 +393,54 @@ end
 -- WHISPER SPOON > TRANSCRIBE
 ----------------------------------------------------------------------------------------------------
 
-local function whisperSpoonTranscribe(callback, customFilePath)
+local function whisperSpoonFormatPlain(response)
+    -- Just return the plain text from the response
+    if response and response.text then
+        return response.text:gsub("^%s+", ""):gsub("%s+$", "")
+    end
+    return nil
+end
+
+local function whisperSpoonFormatTimestamped(response)
+    -- Format text with word-level timestamps
+    if not response or not response.words then
+        return nil
+    end
+    
+    local result = ""
+    local currentLine = ""
+    local lastEndTime = 0
+    
+    for i, word in ipairs(response.words) do
+        -- Format timestamp as [MM:SS.ms]
+        local startTime = word.start
+        local minutes = math.floor(startTime / 60)
+        local seconds = startTime % 60
+        local timestamp = string.format("[%02d:%05.2f] ", minutes, seconds)
+        
+        -- Add timestamp at the beginning of a new line
+        if i == 1 or startTime - lastEndTime > 1.5 then
+            if currentLine ~= "" then
+                result = result .. currentLine .. "\n\n"
+                currentLine = ""
+            end
+            currentLine = timestamp .. word.word
+        else
+            currentLine = currentLine .. " " .. word.word
+        end
+        
+        lastEndTime = word["end"]
+    end
+    
+    -- Add the last line
+    if currentLine ~= "" then
+        result = result .. currentLine
+    end
+    
+    return result
+end
+
+local function whisperSpoonTranscribe(callback, customFilePath, format)
     local apiConfig, error = whisperSpoonGetApiConfig()
     if not apiConfig then
         callback(nil, error)
@@ -420,9 +481,19 @@ local function whisperSpoonTranscribe(callback, customFilePath)
         
         -- Process the response
         local success, decodedResponse = pcall(hs.json.decode, stdOut)
-        if success and decodedResponse.text then
-            local text = decodedResponse.text:gsub("^%s+", ""):gsub("%s+$", "")
-            callback(text, nil)
+        if success then
+            local text
+            if format == "timestamped" then
+                text = whisperSpoonFormatTimestamped(decodedResponse)
+            else
+                text = whisperSpoonFormatPlain(decodedResponse)
+            end
+            
+            if text then
+                callback(text, nil, decodedResponse)
+            else
+                callback(nil, "Failed to format transcription", decodedResponse)
+            end
         else
             callback(nil, "API error: " .. stdOut)
         end
@@ -437,11 +508,43 @@ local function whisperSpoonTranscribe(callback, customFilePath)
     return false
 end
 
+local function whisperSpoonTranscribeAndSaveToFile(customFilePath, format)
+    -- Show transcription in progress alert
+    whisperSpoonShowAlert("📝 Transcribing " .. (format == "timestamped" and "with timestamps" or "plain text") .. "...", 2)
+    
+    -- Generate a filename with timestamp
+    local timestamp = os.date("%Y%m%d-%H%M%S")
+    local filename = "transcript-" .. timestamp .. (format == "timestamped" and "-timestamped" or "") .. ".txt"
+    
+    -- Start transcription with the selected file
+    whisperSpoonTranscribe(function(text, error, rawResponse)
+        if error then
+            hs.sound.getByName("Basso"):play()
+            whisperSpoonShowAlert("Transcription error: " .. error, 5)
+        else
+            hs.sound.getByName("Purr"):play()
+            if text and text ~= "" then
+                -- Save to file
+                local filepath = whisperSpoonSaveTranscriptionToFile(text, filename)
+                
+                -- Open the file with default app
+                whisperSpoonOpenFileWithDefaultApp(filepath)
+                
+                -- Add to history
+                whisperSpoonConfigHistoryAdd(text)
+                
+                whisperSpoonShowAlert("📄 Transcription saved to file", 2)
+            end
+        end
+        whisperSpoonMenubarRebuild()
+    end, customFilePath, format)
+end
+
 ----------------------------------------------------------------------------------------------------
 -- WHISPER SPOON > FILE SELECTION
 ----------------------------------------------------------------------------------------------------
 
-local function whisperSpoonSelectAudioFile()
+local function whisperSpoonSelectAndTranscribeFile(format)
     -- Check API configuration first
     local apiConfig, error = whisperSpoonGetApiConfig(true)
     if not apiConfig then
@@ -449,9 +552,11 @@ local function whisperSpoonSelectAudioFile()
         return false
     end
 
+    local formatName = format == "timestamped" and "Timestamped" or "Plain"
+    
     -- Open file picker dialog with audio file filters
     local selectedFiles = hs.dialog.chooseFileOrFolder(
-        "Select Audio File for Transcription", 
+        "Select Audio File for " .. formatName .. " Transcription", 
         "~/", -- Start in home directory
         true, -- Allow files
         false, -- Don't allow directories
@@ -473,24 +578,8 @@ local function whisperSpoonSelectAudioFile()
         return false
     end
 
-    -- Show transcription in progress alert
-    whisperSpoonShowAlert("📝 Transcribing file...", 2)
-
-    -- Start transcription with the selected file
-    whisperSpoonTranscribe(function(text, error)
-        if error then
-            hs.sound.getByName("Basso"):play()
-            whisperSpoonShowAlert("Transcription error: " .. error, 5)
-        else
-            hs.sound.getByName("Purr"):play()
-            if text and text ~= "" then
-                hs.pasteboard.setContents(text)
-                hs.eventtap.keyStroke({"cmd"}, "v")
-                whisperSpoonConfigHistoryAdd(text)
-            end
-        end
-        whisperSpoonMenubarRebuild()
-    end, filePath)
+    -- Transcribe and save to file
+    whisperSpoonTranscribeAndSaveToFile(filePath, format)
     
     return true
 end
@@ -691,8 +780,19 @@ local menuDefinitions = {
             end
         },
         {
-            title = "Transcribe File...",
-            fn = whisperSpoonSelectAudioFile,
+            title = "Transcribe File",
+            submenu = function()
+                return {
+                    {
+                        title = "Plain",
+                        fn = function() whisperSpoonSelectAndTranscribeFile("plain") end
+                    },
+                    {
+                        title = "Timestamped",
+                        fn = function() whisperSpoonSelectAndTranscribeFile("timestamped") end
+                    }
+                }
+            end,
             disabled = function() return whisperSpoonPidFileRunning(whisperSpoonFilePidTranscribe) end,
             condition = function() return whisperSpoonGetApiConfig(true) ~= nil end
         },
