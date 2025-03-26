@@ -379,12 +379,14 @@ end
 -- WHISPER SPOON > TRANSCRIBE
 ----------------------------------------------------------------------------------------------------
 
-local function whisperSpoonTranscribe(callback)
+local function whisperSpoonTranscribe(callback, customFilePath)
     local apiConfig, error = whisperSpoonGetApiConfig()
     if not apiConfig then
         callback(nil, error)
         return false
     end
+    
+    local audioFile = customFilePath or whisperSpoonFileAudio
     
     local curlArgs = {
         "-s",
@@ -398,7 +400,7 @@ local function whisperSpoonTranscribe(callback)
     end
     
     table.insert(curlArgs, "-F")
-    table.insert(curlArgs, "file=@" .. whisperSpoonFileAudio)
+    table.insert(curlArgs, "file=@" .. audioFile)
     
     for key, value in pairs(apiConfig.formParams) do
         table.insert(curlArgs, "-F")
@@ -433,6 +435,65 @@ local function whisperSpoonTranscribe(callback)
         return true
     end
     return false
+end
+
+----------------------------------------------------------------------------------------------------
+-- WHISPER SPOON > FILE SELECTION
+----------------------------------------------------------------------------------------------------
+
+local function whisperSpoonSelectAudioFile()
+    -- Check API configuration first
+    local apiConfig, error = whisperSpoonGetApiConfig(true)
+    if not apiConfig then
+        whisperSpoonShowAlert("API configuration error:\n" .. error, 5)
+        return false
+    end
+    
+    -- Open file picker dialog with audio file filters
+    local selectedFiles = hs.dialog.chooseFileOrFolder(
+        "Select Audio File for Transcription", 
+        "~/", -- Start in home directory
+        true, -- Allow files
+        false, -- Don't allow directories
+        false, -- Don't allow multiple selections
+        {"wav", "mp3", "m4a", "flac", "ogg", "aac"}, -- Audio file extensions
+        true -- Resolve aliases
+    )
+    
+    if not selectedFiles then
+        -- User canceled
+        return
+    end
+    
+    -- Get the file path from the first element
+    local filePath = selectedFiles[1]
+    
+    -- Check if we got a valid file path
+    if not filePath then
+        whisperSpoonShowAlert("Error: Could not get file path", 3)
+        return false
+    end
+    
+    -- Show transcription in progress alert
+    whisperSpoonShowAlert("📝 Transcribing file...", 2)
+    
+    -- Start transcription with the selected file
+    whisperSpoonTranscribe(function(text, error)
+        if error then
+            hs.sound.getByName("Basso"):play()
+            whisperSpoonShowAlert("Transcription error: " .. error, 5)
+        else
+            hs.sound.getByName("Purr"):play()
+            if text and text ~= "" then
+                hs.pasteboard.setContents(text)
+                hs.eventtap.keyStroke({"cmd"}, "v")
+                whisperSpoonConfigHistoryAdd(text)
+            end
+        end
+        whisperSpoonMenubarRebuild()
+    end, filePath)
+    
+    return true
 end
 
 ----------------------------------------------------------------------------------------------------
@@ -629,6 +690,12 @@ local menuDefinitions = {
                        whisperSpoonPidFileRunning(whisperSpoonFilePidRecord) or
                        whisperSpoonGetApiConfig(true) ~= nil
             end
+        },
+        {
+            title = "Transcribe File...",
+            fn = whisperSpoonSelectAudioFile,
+            disabled = function() return whisperSpoonPidFileRunning(whisperSpoonFilePidTranscribe) end,
+            condition = function() return whisperSpoonGetApiConfig(true) ~= nil end
         },
         {
             title = function()
