@@ -448,7 +448,7 @@ local function whisperSpoonSelectAudioFile()
         whisperSpoonShowAlert("API configuration error:\n" .. error, 5)
         return false
     end
-    
+
     -- Open file picker dialog with audio file filters
     local selectedFiles = hs.dialog.chooseFileOrFolder(
         "Select Audio File for Transcription", 
@@ -459,24 +459,23 @@ local function whisperSpoonSelectAudioFile()
         {"wav", "mp3", "m4a", "flac", "ogg", "aac"}, -- Audio file extensions
         true -- Resolve aliases
     )
-    
+
     if not selectedFiles then
         -- User canceled
         return
     end
     
-    -- Get the file path from the first element
-    local filePath = selectedFiles[1]
+    local _, filePath = next(selectedFiles)
     
     -- Check if we got a valid file path
     if not filePath then
         whisperSpoonShowAlert("Error: Could not get file path", 3)
         return false
     end
-    
+
     -- Show transcription in progress alert
     whisperSpoonShowAlert("📝 Transcribing file...", 2)
-    
+
     -- Start transcription with the selected file
     whisperSpoonTranscribe(function(text, error)
         if error then
